@@ -16,14 +16,14 @@ class FriendRequest(AbstractModel):
     sending_user = models.ForeignKey(
         to=User,
         related_name='friend_sending_requests',
-        verbose_name=_('Аккаунт, запрашивающий добавление в друзья.'),
+        verbose_name=_('Пользователь, запрашивающий добавление в друзья.'),
         on_delete=models.CASCADE,
         db_index=True,
     )
     receiving_user = models.ForeignKey(
         to=User,
         related_name='friend_receiving_requests',
-        verbose_name=_('Аккаунт, который запрашивают о добавлении в друзья.'),
+        verbose_name=_('Пользователь, которого добавляют в друзья.'),
         on_delete=models.CASCADE,
         db_index=True,
     )

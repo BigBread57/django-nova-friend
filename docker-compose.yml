@@ -28,12 +28,6 @@ services:
         dockerfile: ./docker/django/Dockerfile
         args:
           DJANGO_ENV: development
-        cache_from:
-          - "django_nova_friend:dev"
-          - "django_nova_friend:latest"
-          - "ghub.letsnova.com/nova/django/django-nova-friend/ci:*"
-          - "ghub.letsnova.com/nova/django/django-nova-friend/*"
-          - "*"
 
       volumes:
         - django-static:/var/www/django/static

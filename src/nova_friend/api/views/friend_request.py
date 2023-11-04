@@ -1,109 +1,161 @@
 import uuid
 
 import django_filters
-from django.db.models.query_utils import Q  # noqa: WPS347
-from nova_target.services.tracking_target.target_engine import target_engine
+from django.db import models
+from django.utils.translation import gettext_lazy as _
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from server.apps.nova_account.api.serializers import FriendRequestSerializer
-from server.apps.nova_account.api.serializers.friend_request import (
-    NewFriendRequestSerializer,
+from nova_friend.api.serializers import (
+    CreateFriendRequestSerializer,
+    FriendRequestSerializer,
 )
-from server.apps.nova_account.models import FriendRequest
-from server.apps.nova_account.services.enums import FriendRequestStatus
-from server.apps.nova_account.services.friend_request.views import (
-    cancel_friend_request,
+from nova_friend.models import FriendRequest
+from nova_friend.services.action_friend_request import (
     confirm_friend_request,
-    reject_friend_request,
+    friend_request_action,
 )
-from server.apps.services.target_class import ThreeFriendsTargetAction
-from server.apps.services.viewsets import RetrieveListCreateViewSet
+from nova_friend.services.create_friend_request import create_friend_request
+from nova_friend.services.enums import FriendRequestAction, FriendRequestStatus
+from nova_friend.services.viewsets import BaseRetrieveListCreateDestroyViewSet
 
 
 class FriendRequestFilter(django_filters.FilterSet):
     """Фильтр для FriendRequest."""
 
+    sending_user_email = django_filters.AllValuesMultipleFilter(
+        field_name='sending_user__email',
+        label=_(
+            'Множественный поиск по email пользователя, ' +
+            'запрашивающий добавление в друзья.',
+        ),
+    )
+    sending_user_username = django_filters.AllValuesMultipleFilter(
+        field_name='sending_user__username',
+        label=_(
+            'Множественный поиск по никнейму пользователя, ' +
+            'запрашивающий добавление в друзья.',
+        ),
+    )
+    sending_user_first_name = django_filters.AllValuesMultipleFilter(
+        field_name='sending_user__first_name ',
+        label=_(
+            'Множественный поиск по имени пользователя, ' +
+            'запрашивающий добавление в друзья.',
+        ),
+    )
+    sending_user_last_name = django_filters.AllValuesMultipleFilter(
+        field_name='sending_user__last_name',
+        label=_(
+            'Множественный поиск по фамилии пользователя, ' +
+            'запрашивающий добавление в друзья.',
+        ),
+    )
+    receiving_user_email = django_filters.AllValuesMultipleFilter(
+        field_name='receiving_user__email',
+        label=_(
+            'Множественный поиск по email пользователя, ' +
+            'которого добавляют в друзья.',
+        ),
+    )
+    receiving_user_username = django_filters.AllValuesMultipleFilter(
+        field_name='receiving_user__username',
+        label=_(
+            'Множественный поиск по никнейму пользователя, ' +
+            'которого добавляют в друзья.',
+        ),
+    )
+    receiving_user_first_name = django_filters.AllValuesMultipleFilter(
+        field_name='receiving_user__first_name ',
+        label=_(
+            'Множественный поиск по имени пользователя, ' +
+            'которого добавляют в друзья.',
+        ),
+    )
+    receiving_user_last_name = django_filters.AllValuesMultipleFilter(
+        field_name='receiving_user__last_name',
+        label=_(
+            'Множественный поиск по фамилии пользователя, ' +
+            'которого добавляют в друзья.',
+        ),
+    )
+
     class Meta(object):
         model = FriendRequest
         fields = (
             'id',
-            'sending_account',
-            'sending_account__user',
-            'sending_account__user__email',
-            'sending_account__user__username',
-            'sending_account__user__first_name',
-            'sending_account__user__last_name',
-            'receiving_account',
-            'receiving_account__user',
-            'receiving_account__user__email',
-            'receiving_account__user__username',
-            'receiving_account__user__first_name',
-            'receiving_account__user__last_name',
-            'is_approved',
+            'sending_user',
+            'sending_user_email',
+            'sending_user_username',
+            'sending_user_first_name',
+            'sending_user_last_name',
+            'receiving_user',
+            'receiving_user_email',
+            'receiving_user_username',
+            'receiving_user_first_name',
+            'receiving_user_last_name',
             'created_at',
+            'updated_at',
             'contact',
             'status',
             'token',
         )
 
 
-class FriendRequestViewSet(RetrieveListCreateViewSet):
-    """Запросы в друзья. Просмотр/добавление.
+class FriendRequestViewSet(BaseRetrieveListCreateDestroyViewSet):
+    """Запросы в друзья. Просмотр/создание.
 
     Стандартные методы:
 
-    1) GET api/accounts/friend-request - получение списка запросов в друзья.
+    1) GET api/friends/friend-request - получение списка запросов в друзья.
     Доступно: всем авторизованным.
 
-    2) GET api/accounts/friend-request/<token> - получение конкретного запроса
+    2) GET api/friends/friend-request/<token> - получение конкретного запроса
     по его token.
-    Доступно: суперпользователю и отправителю и получателю запроса.
+    Доступно: суперпользователю, отправителю и получателю запроса.
 
-    3) POST api/accounts/friend-request - создание запроса в друзья.
+    3) POST api/friends/friend-request - создание запроса в друзья.
     Доступно: всем авторизованным.
+
+    4) DELETE api/friends/friend-request/<token> - удаление запроса в друзья.
+    Доступно: суперпользователю, отправителю и получателю запроса.
+
     Дополнительно:
     - POST api/accounts/friend-request/<token>/confirm -для принятия запроса
     в друзья (доступно суперпользователю и тому, кому отправлен запрос).
-
-    4) DELETE api/accounts/friend-request/<token> - не доступен.
-    Дополнительно:
     - DELETE api/accounts/friend-request/<token>/reject - удаление запроса в
     друзья (доступно суперпользователю и тому, кому отправлен запрос).
     - DELETE api/accounts/friend-request/<token>/cancel - удаление запроса в
     друзья (доступно суперпользователю и тому, кто отправлен запрос).
-
-    5) PATCH, PUT api/accounts/friend-request/<token> - не доступен.
     """
 
     queryset = FriendRequest.objects.select_related(
-        'sending_account__user',
-        'receiving_account__user',
+        'sending__user',
+        'receiving_user',
     )
     serializer_class = FriendRequestSerializer
-    create_serializer_class = NewFriendRequestSerializer
+    create_serializer_class = CreateFriendRequestSerializer
     ordering_fields = '__all__'
     search_fields = (
-        'sending_account__user__email',
-        'sending_account__user__username',
-        'sending_account__user__first_name',
-        'sending_account__user__last_name',
-        'receiving_account__user__email',
-        'receiving_account__user__username',
-        'receiving_account__user__first_name',
-        'receiving_account__user__last_name',
+        'sending_user__email',
+        'sending_user__username',
+        'sending_user__first_name',
+        'sending_user__last_name',
+        'receiving_user__email',
+        'receiving_user__username',
+        'receiving_user__first_name',
+        'receiving_user__last_name',
     )
     filterset_class = FriendRequestFilter
     permission_type_map = {
-        **RetrieveListCreateViewSet.permission_type_map,
+        **BaseRetrieveListCreateDestroyViewSet.permission_type_map,
         'confirm': 'confirm',
         'reject': 'reject',
         'cancel': 'cancel',
     }
     lookup_field = 'token'
-    user_for_engine = None
 
     def get_queryset(self):  # noqa: WPS615
         """Фильтруем выдачу запросов в друзья.
@@ -116,19 +168,25 @@ class FriendRequestViewSet(RetrieveListCreateViewSet):
         queryset = super().get_queryset()
         user = self.request.user
 
+        if getattr(self, "swagger_fake_view", False):
+            return FriendRequest.objects.none()
+
         if user.is_superuser:
             return queryset
 
         return queryset.filter(
-            (Q(sending_account=user.account) | Q(receiving_account=user.account)) &  # noqa: E501
-            Q(is_approved=False) & Q(status=FriendRequestStatus.PENDING.value),
+            models.Q(sending_user=user) |
+            models.Q(receiving_user=user)
         )
 
-    @target_engine.register_action(  # type: ignore
-        user_argument=0,
-        target_class=ThreeFriendsTargetAction,
-        user_attribute='user_for_engine',
-    )
+    def perform_create(self, serializer):
+        """Создание запроса в друзья."""
+        serializer.instance = create_friend_request(
+            validated_data=serializer.validated_data,
+            sending_user=self.request.user,
+            locale=self.request.LANGUAGE_CODE,
+        )
+
     @action(
         methods=['POST'],
         url_path='confirm',
@@ -155,12 +213,15 @@ class FriendRequestViewSet(RetrieveListCreateViewSet):
 
         Общее описание: пользователь дает согласие на добавления себя в друзья
         пользователю, который предложил дружбу.
+        Отправляется сигнал friend_request_action.
 
         Доступно: суперпользователю и пользователю, которому был отправлен
         запрос в друзья (получателю).
         """
-        friend_request = confirm_friend_request(token=token)
-        self.user_for_engine = friend_request.sending_account.user
+        friend_request_action(
+            status=FriendRequestStatus.CONFIRMED,
+            token=token,
+        )
         return Response(status=status.HTTP_200_OK)
 
     @action(
@@ -188,15 +249,16 @@ class FriendRequestViewSet(RetrieveListCreateViewSet):
         Статус: HTTP_404_NOT_FOUND
 
         Общее описание: пользователь, получивший запрос на добавление в друзья
-        отказывается от дружбы. При удалении запроса, уведомление, которое
-        получает вторая сторона (уведомление о том, что его хотят пригласить в
-        друзья), становится не активным, кнопки по данному уведомлению не
-        должны быть доступны.
+        отказывается от дружбы.
+        Отправляется сигнал friend_request_action.
 
         Доступно: суперпользователю и пользователю, которому отправили запрос
-        (получателю). Запрос должен быть активным (is_approved==False).
+        (получателю). Запрос должен иметь статус (FriendRequestStatus.PENDING).
         """
-        reject_friend_request(token=token)
+        friend_request_action(
+            status=FriendRequestStatus.REJECTED,
+            token=token,
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(
@@ -224,48 +286,14 @@ class FriendRequestViewSet(RetrieveListCreateViewSet):
         Статус: HTTP_404_NOT_FOUND
 
         Общее описание: пользователь, создавший запрос на добавление в друзья
-        удаляет данный запрос. При удалении запроса, уведомление, которое
-        получает вторая сторона (уведомление о том, что его хотят пригласить в
-        друзья), становится не активным, кнопки по данному уведомлению не
-        должны быть доступны.
+        удаляет данный запрос.
+        Отправляется сигнал friend_request_action.
 
         Доступно: суперпользователю и пользователю, который создал запрос
-        (отправитель). Запрос должен быть активным (is_approved==False).
+        (отправитель). Запрос должен иметь статус (FriendRequestStatus.PENDING).
         """
-        cancel_friend_request(token=token)
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-    @action(
-        methods=['DELETE'],
-        url_path='delete-friend',
-        detail=False,
-        serializer_class=DeleteFriendSerializer,
-    )
-    def delete_friend(self, request):
-        """Удаление друга из списка друзей.
-
-        Формирование url: автоматическое формирование.
-
-        Данные на вход: {"bad_friend_account_id": int}. Передаем id аккаунта
-        пользователя, которого хотим удалить их друзей.
-
-        Успех:
-        Тело - отсутствует.
-        Статус - HTTP_204_NO_CONTENT
-
-        Ошибки: специфические ошибки отсутствуют.
-
-        Общее описание: пользователь удаляет другого пользователя из своего
-        списка друзей.
-
-        Доступно: всем авторизованным.
-        """
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        delete_bad_friend_account(
-            user_account=request.user.account,
-            bad_friend_account=serializer.validated_data['bad_friend_account_id'],  # noqa: E501
+        friend_request_action(
+            status=FriendRequestStatus.CANCELED,
+            token=token,
         )
-
         return Response(status=status.HTTP_204_NO_CONTENT)

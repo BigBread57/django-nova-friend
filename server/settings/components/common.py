@@ -40,6 +40,7 @@ INSTALLED_APPS: Tuple[str, ...] = (
     # django rest framework
     'rest_framework',
     'django_filters',
+    'phonenumber_field',
 
     'nova_friend',
 

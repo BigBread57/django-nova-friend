@@ -1,19 +1,19 @@
 from typing import Optional
 
-from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
-from rest_framework.exceptions import ValidationError
 
 from nova_friend.models import FriendRequest
-from nova_friend.services.receiver import Receiver
+from nova_friend.services.absolute_url import get_absolute_url_before_avatar
+from nova_friend.services.enums import FriendRequestMode
 
 
-class NewFriendRequestSerializer(serializers.ModelSerializer):
+class CreateFriendRequestSerializer(serializers.ModelSerializer):
     """Сериализатор для создания нового запроса в друзья."""
 
     class Meta(object):
         model = FriendRequest
         fields = (
+            'id',
             'contact',
             'token',
         )
@@ -21,59 +21,23 @@ class NewFriendRequestSerializer(serializers.ModelSerializer):
             'token': {'read_only': True},
         }
 
-    def create(self, validated_data):
-        """Создание нового FriendRequest."""
-        # Получаем данные отправителя - пользователя, который хочет добавить
-        # кого-то в друзья.
-        request = self.context['request']
-        sender = request.user
-
-        # Получаем receiver по информации, переданной в 'contact'
-        receiver = Receiver(
-            contact=validated_data['contact'],
-            user=sender,
-            locale=request.LANGUAGE_CODE,
-        )
-        receiver = receiver.receiver_by_contact()
-
-        if sender == receiver:
-            raise ValidationError(
-                _('Вы пытаетесь отправить запрос самому себе.'),
-            )
-        if receiver in sender.friends.all():
-            raise ValidationError(
-                _('Пользователь уже добавлен в Ближний круг.'),
-            )
-
-        # Проверяем что пользователя могут приглашать в друзья и в его
-        # настройках приватности не стоит ограничений.
-        check_invitation_from_other_users(account_id=receiver.id)
-
-        validated_data['sending_account'] = sender
-        validated_data['receiving_account'] = receiver
-
-        # Проверяем, что FriendRequest с receiver и sender нет в БД.
-        check_if_exists_fr(validated_data)
-        check_if_reverse_exists_fr(validated_data)
-
-        return super().create(validated_data)
-
 
 class FriendRequestSerializer(serializers.ModelSerializer):
     """Сериализатор для запроса в друзья."""
 
-    avatar = serializers.SerializerMethodField(read_only=True)
-    request_mode = serializers.SerializerMethodField(read_only=True)
-    contact_info = serializers.SerializerMethodField(read_only=True)
+    avatar = serializers.SerializerMethodField()
+    request_mode = serializers.SerializerMethodField()
+    contact_info = serializers.SerializerMethodField()
 
     class Meta(object):
         model = FriendRequest
-        fields = [
+        fields = (
+            'id',
             'avatar',
             'request_mode',
             'contact_info',
             'token',
-        ]
+        )
 
     def get_request_mode(  # noqa: WPS615
         self,
@@ -81,9 +45,9 @@ class FriendRequestSerializer(serializers.ModelSerializer):
     ) -> Optional[FriendRequestMode]:
         """Тип запроса: входящий-исходящий."""
         user = self.context['request'].user
-        if friend_request.sending_account.user == user:
+        if friend_request.sending_user == user:
             return FriendRequestMode.OUTCOMING
-        elif friend_request.receiving_account.user == user:
+        elif friend_request.receiving_user == user:
             return FriendRequestMode.INCOMING
         return None
 
@@ -91,12 +55,12 @@ class FriendRequestSerializer(serializers.ModelSerializer):
         self,
         friend_request: FriendRequest,
     ) -> Optional[str]:
-        """Получение поля contact_info."""
-        mode = self.get_request_mode(friend_request)
-        if mode == FriendRequestMode.INCOMING:
-            return str(friend_request.sending_account.user.full_name)
-        elif mode == FriendRequestMode.OUTCOMING:
-            return str(friend_request.receiving_account.user.full_name)
+        """Получение информации о пользователе исходя из типа запроса."""
+        request_mode = self.get_request_mode(friend_request)
+        if request_mode == FriendRequestMode.INCOMING:
+            return friend_request.sending_user.full_name
+        elif request_mode == FriendRequestMode.OUTCOMING:
+            return friend_request.receiving_user.full_name
         return None
 
     def get_avatar(  # noqa: WPS615
@@ -104,12 +68,13 @@ class FriendRequestSerializer(serializers.ModelSerializer):
         friend_request: FriendRequest,
     ) -> Optional[str]:
         """Получение аватарки исходя из типа запроса."""
-        if self.get_request_mode(friend_request) == FriendRequestMode.OUTCOMING:
+        request_mode = self.get_request_mode(friend_request)
+        if request_mode == FriendRequestMode.OUTCOMING:
             return get_absolute_url_before_avatar(
-                friend_request.receiving_account.avatar,
+                friend_request.receiving_user.avatar,
             )
-        elif self.get_request_mode(friend_request) == FriendRequestMode.INCOMING:  # noqa: E501
+        elif request_mode == FriendRequestMode.INCOMING:
             return get_absolute_url_before_avatar(
-                friend_request.sending_account.avatar,
+                friend_request.sending_user.avatar,
             )
         return None

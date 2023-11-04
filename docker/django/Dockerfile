@@ -1,7 +1,9 @@
+# syntax=docker/dockerfile:1
+
 # This Dockerfile uses multi-stage build to customize DEV and PROD images:
 # https://docs.docker.com/develop/develop-images/multistage-build/
 
-FROM ghub.letsnova.com/nova/python:3.10-slim-buster AS base
+FROM hub.letsnova.com/p/python:3.11-slim-bookworm AS base_build
 
 LABEL maintainer="nova@letsnova.ru"
 LABEL vendor="nova"
@@ -15,14 +17,14 @@ ENV \
   PYTHONHASHSEED=random \
   PYTHONDONTWRITEBYTECODE=1 \
   # pip:
-  PIP_NO_CACHE_DIR=off \
-  PIP_DISABLE_PIP_VERSION_CHECK=on \
+  PIP_CACHE_DIR=/var/cache/pip \
+  PIP_DISABLE_PIP_VERSION_CHECK=1 \
   PIP_DEFAULT_TIMEOUT=100 \
   PIP_INDEX_URL=https://pypi.letsnova.ru/simple/ \
   # dockerize:
   USE_DOCKER=1 \
   # poetry:
-  POETRY_VERSION=1.2.2 \
+  POETRY_VERSION=1.7.0 \
   POETRY_NO_INTERACTION=1 \
   POETRY_VIRTUALENVS_CREATE=false \
   POETRY_CACHE_DIR='/var/cache/pypoetry' \
@@ -56,11 +58,13 @@ RUN chmod +x '/docker-entrypoint.sh' \
 # Copy only requirements, to cache them in docker layer
 COPY --chown=web:web ./poetry.lock ./pyproject.toml /code/
 
-FROM base as ci
+FROM base_build as ci
 
 # Project initialization:
-RUN poetry install --no-root \
-  && rm -rf "$POETRY_CACHE_DIR" \
+RUN \
+  --mount=type=cache,id=pip,target="$PIP_CACHE_DIR",sharing=shared,mode=0755 \
+  --mount=type=cache,id=poetry,target="$POETRY_CACHE_DIR",sharing=shared,mode=0755 \
+    poetry install --no-root \
   # Устанавливаем poetry заново, так как блядский poetry при установке удаляет
   # свои же зависимости
   && pip install "poetry==$POETRY_VERSION"

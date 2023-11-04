@@ -7,4 +7,12 @@ class FriendRequestStatus(models.TextChoices):
 
     PENDING = 'pending', _('Ожидает')
     REJECTED = 'rejected', _('Отклонён')
-    ACCEPTED = 'accepted', _('Принят')
+    CONFIRMED = 'confirmed', _('Подтвержден')
+    CANCELED = 'canceled', _('Отменен')
+
+
+class FriendRequestMode(models.TextChoices):
+    """Тип запроса в друзья."""
+
+    INCOMING = 'incoming', _('Входящий')
+    OUTCOMING = 'outcoming', _('Исходящий')

@@ -24,6 +24,15 @@ class ReferralInvite(AbstractModel):
         verbose_name=_('Пользователь, которого пригласили.'),
         on_delete=models.CASCADE,
         db_index=True,
+        unique=True,
+    )
+    referral_code = models.ForeignKey(
+        to='nova_friend.ReferralCode',
+        related_name='referral_invites',
+        verbose_name=_('Код, по которому был приглашен пользователь'),
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True,
     )
 
     class Meta(AbstractModel.Meta):

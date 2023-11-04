@@ -50,16 +50,24 @@ urlpatterns = [
 отправить приглашение другому пользователю, которого не существует в системе.
 Сигнал отправляет следующую информацию:
 - new_user_email (str): email нового пользователя;
-- sender_user_email (str): email отправителя запроса;
+- sending_user_email (str): email отправителя запроса;
 - locale (str): локаль, с которой был отправлен запрос.
 
 
 Пример обработки сигнала
 ```python
+class LimitExceeded(APIException):
+    """Вызов исключения во время создания FriendRequest по link."""
+
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = _('Превышен лимит приглашений друзей в ближний круг.')
+    default_code = 'limit_exceeded'
+
+
 @receiver(inviting_new_user_by_email)
 def send_email_for_new_user(
     sender,
-    sender_user_id: int,
+    sending_user_id: int,
     new_user_email: str,
     locale: str,
     **kwarg,
@@ -74,7 +82,7 @@ def send_email_for_new_user(
     if customization.number_invites >= settings.MAX_NUMBER_INVITES:  # type: ignore  # noqa: E501
         raise LimitExceeded
     
-    sender_user = User.objects.get(id=sender_user_id)
+    sending_user = User.objects.get(id=sending_user_id)
     # Формируем данные для отправки письма.
     name_template = f'send_email_friend_request/{locale}.html'
     translation.activate(locale)
@@ -112,5 +120,5 @@ def send_email_for_new_user(
 отправить приглашение другому пользователю, которого не существует в системе.
 Сигнал отправляет следующую информацию:
 - new_user_email (str): email нового пользователя;
-- sender_user_email (str): email отправителя запроса;
+- sending_user_email (str): email отправителя запроса;
 - locale (str): локаль, с которой был отправлен запрос.
