@@ -1,0 +1,142 @@
+[tool.poetry]
+authors = ["NOVA <tech@letsnova.ru>"]
+description = "django app for users functionalities"
+name = "django-nova-friend"
+version = "0.0.0"
+
+packages = [
+  { include = "nova_friend", from = "src" },
+]
+
+[tool.poetry.dependencies]
+python = ">=3.8,<4"
+
+# Poetry requirements, требуется для корректной сборки Docker контейнеров
+certifi = "*"
+requests = "*"
+virtualenv = "*"
+packaging = "^21.0"  # pip требует версию <21
+
+argon2-cffi = "*"  # https://github.com/hynek/argon2_cffi
+pytz = "*"  # https://github.com/stub42/pytz
+
+# Django
+# ------------------------------------------------------------------------------
+django = "^4"  # https://www.djangoproject.com/
+# replaced by decouple due inactivity of authors
+# django-environ = "^0.4.5"  # https://github.com/joke2k/django-environ
+# django-stubs-ext требуется для работы аннотации типов в production-mode
+django-stubs-ext = "^0.7"  # https://github.com/typeddjango/django-stubs
+
+# Securitypoe
+# ------------------------------------------------------------------------------
+# changes auto_generation key to bigint affects migrations
+
+# Django REST Framework
+djangorestframework = "^3.14"  # https://github.com/encode/django-rest-framework
+django-filter = "^22.1"  # https://github.com/carltongibson/django-filter/tree/78210722d920f803a8142e48969bc37f0f8324ed
+django-health-check = "^3.17"  # https://github.com/KristianOellegaard/django-health-check
+drf-nova-router = "*"  # https://gitlab.letsnova.com/Nova/django/drf-nova-router
+django-ipware = "^4.0.2"  # https://github.com/un33k/django-ipware
+celery = "^5.3.4"
+django-cors-headers = "^4.2.0"
+rules = "^3.3"
+django-csp = "^3.7"
+djangorestframework-camel-case = "^1.4.2"
+drf-excel = "^2.4.0"
+
+[tool.poetry.dev-dependencies]
+django-coverage-plugin = "^3.0"  # https://github.com/nedbat/django_coverage_plugin
+django-debug-toolbar = "^3.8.1"  # https://github.com/jazzband/django-debug-toolbar
+django-extra-checks = "^0.13.3"  # https://github.com/kalekseev/django-extra-checks
+django-migration-linter = "^4.1"  # https://github.com/3YOURMIND/django-migration-linter
+django-querycount = "^0.7"  # https://pypi.org/project/django-querycount/
+nplusone = "^1.0"  # https://github.com/jmcarp/nplusone
+django-split-settings = "^1.2"  # https://github.com/sobolevn/django-split-settings
+python-decouple = "^3.6"  # https://github.com/henriquebastos/python-decouple
+psycopg2-binary = "2.9.5"  # https://github.com/psycopg/psycopg2/
+
+# Code quality
+# ------------------------------------------------------------------------------
+flake8-django = "1.1"  # https://github.com/rocioar/flake8-django
+flake8-logging-format = "^0.9"  # https://github.com/rocioar/flake8-django
+flake8-pytest-style = "^1.6"  # https://github.com/m-burst/flake8-pytest-style
+nitpick = "^0.32"  # https://github.com/andreoliwa/nitpick
+wemake-python-styleguide = "^0.16"  # https://wemake-python-stylegui.de/en/latest/
+flake8 = "^4.0.1"  # https://pypi.org/project/flake8/
+flake8-nova-formatter = "*"  # https://gitlab.letsnova.com/Nova/styleguide/flake8-nova-formatter
+
+# Testing
+# ------------------------------------------------------------------------------
+django-test-migrations = "^1.2"  # https://github.com/wemake-services/django-test-migrations
+factory-boy = "^3.2.1"  # https://github.com/FactoryBoy/factory_boy
+hypothesis = "^6.61"  # https://pypi.org/project/hypothesis/
+pytest = "^7.2"  # https://github.com/pytest-dev/pytest
+pytest-cov = "^4"  # https://github.com/pytest-dev/pytest-cov
+pytest-deadfixtures = "^2.2.1"  # https://github.com/jllorencetti/pytest-deadfixtures
+pytest-django = "^4.5.2"  # https://github.com/pytest-dev/pytest-django
+pytest-randomly = "^3.12"  # https://github.com/pytest-dev/pytest-randomly
+pytest-testmon = "^1.3"  # https://github.com/tarpas/pytest-testmon
+pytest-timeout = "^2.1"  # https://github.com/pytest-dev/pytest-timeout/
+pytest-factoryboy = "^2.5.1"  # https://pypi.org/project/pytest-factoryboy/
+pytest-env = "^0.8.1"  #  https://github.com/MobileDynasty/pytest-env
+
+# Type checking
+# ------------------------------------------------------------------------------
+django-stubs = "^1.13"  # https://github.com/typeddjango/django-stubs
+mypy = "*"  # https://github.com/python/mypy
+
+# Documentation
+# ------------------------------------------------------------------------------
+doc8 = "^1.1.1"  # https://github.com/pycqa/doc8
+sphinx = "^5.3"  # https://github.com/sphinx-doc/sphinx
+sphinx-autodoc-typehints = "^1.19.5"  # https://github.com/agronholm/sphinx-autodoc-typehints
+tomlkit = "^0.11.6"  # https://github.com/sdispater/tomlkit
+
+# Linting
+# ------------------------------------------------------------------------------
+dennis = "^1.1"  # https://github.com/willkg/dennis
+dotenv-linter = "^0.4"  # https://github.com/wemake-services/dotenv-linter
+dump-env = "^1.4"  # https://github.com/wemake-services/dump-env
+ipython = "^8.7"  # https://pypi.org/project/ipython/
+polint = "^0.4"  # https://github.com/ziima/polint
+safety = "^2.3.4"  # https://github.com/pyupio/safety
+yamllint = "^1.28"  # https://github.com/adrienverge/yamllint
+
+# for core app only
+# ------------------------------------------------------------------------------
+django-activity-stream = "^1.4.2"
+django-environ = "^0.9"  # https://github.com/joke2k/django-environ
+django-extensions = "^3.2.1"  # https://github.com/django-extensions/django-extensions
+drf-extensions = "^0.7.1"  # https://github.com/chibisov/drf-extensions
+sentry-sdk = "^1.12.1"  # https://github.com/getsentry/sentry-python
+structlog = "^22.3" # https://github.com/hynek/structlog
+dj-database-url = "^1.2.0"
+
+# CI needs
+# ------------------------------------------------------------------------------
+importlib-metadata = "^4"  # https://github.com/python/importlib_metadata
+
+
+[build-system]
+build-backend = "poetry.masonry.api"
+requires = ["poetry>=0.12", "poetry-dynamic-versioning"]
+
+[tool.poetry-dynamic-versioning]
+enable = true
+vcs = "git"
+style = "pep440"
+bump = true
+
+[tool.poetry-dynamic-versioning.substitution]
+files = [
+  "src/achievements/__init__.py"
+]
+
+[[tool.poetry.source]]
+default = true
+name = "src"
+url = "https://pypi.letsnova.ru/simple/"
+
+[tool.nitpick]
+style = "https://raw.githubusercontent.com/wemake-services/wemake-python-styleguide/master/styles/nitpick-style-wemake.toml"

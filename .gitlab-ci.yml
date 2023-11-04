@@ -1,0 +1,274 @@
+---
+stages:
+  - setup
+  - test
+  - release
+
+variables:
+  GROUP_NAME: "Nova"
+  PROJECT_NAME: "django-nova-friend"
+  REGISTRY: "${CI_REGISTRY}"
+  IMAGE_FULL_NAME: "${CI_REGISTRY_IMAGE}"
+  COMPOSE_PROJECT_NAME: "${PROJECT_NAME}-${CI_JOB_NAME}"
+  NOVA_CI_IMAGE: $CI_REGISTRY_IMAGE/ci:$CI_COMMIT_REF_SLUG
+  # Необходимый процент покрытия кода
+  COVERAGE_PERCENT: 70
+
+# Base scripts
+# ============
+.base:
+  image: ghub.letsnova.com/nova/devops/docker-runner:latest
+  services:
+    - docker:dind
+  variables:
+    DOCKER_DRIVER: overlay2
+    DATABASE_URL: postgres://postgres@db/postgres
+  tags:
+    - docker
+  before_script: &docker-before-script
+    - env
+    # Making sure we are in the right directory, does nothing by default:
+    - pwd && echo "$CI_PROJECT_DIR" && cd "$CI_PROJECT_DIR"
+    # Creating `.env` configuration file:
+    - dump-env -t config/.env.template -p 'SECRET_' > config/.env
+    # Login into Docker registry:
+    - echo "$CI_JOB_TOKEN" | docker login "$REGISTRY"
+      -u gitlab-ci-token --password-stdin
+    # Debug information:
+    - docker info && docker-compose --version && git --version
+  after_script:
+    # Clean docker environment
+    - docker-compose down --remove-orphans --volumes
+
+  interruptible: true
+
+CI image:
+  extends: .base
+  stage: setup
+  before_script:
+    - *docker-before-script
+    # Pulling cache:
+    - docker pull "${NOVA_CI_IMAGE}" || docker pull "${IMAGE_FULL_NAME}:dev"
+      || true
+  script:
+    # Checking config:
+    - docker-compose -f docker-compose.ci.yml config --quiet
+
+    - docker-compose -f docker-compose.ci.yml build
+
+    - docker image history "${NOVA_CI_IMAGE}"
+    - docker images "${NOVA_CI_IMAGE}"
+    - disl "${NOVA_CI_IMAGE}" 500MiB
+    # Pushing back the result for future runs:
+    - docker push "${NOVA_CI_IMAGE}"
+
+# Test scripts
+# ============
+
+.test:
+  stage: test
+  extends: .base
+  before_script:
+    - *docker-before-script
+    # Pulling cache:
+    - docker pull "${NOVA_CI_IMAGE}" || docker pull "${IMAGE_FULL_NAME}:dev"
+      || true
+    - docker tag "${NOVA_CI_IMAGE}" "${PROJECT_NAME}:dev" || true
+  script:
+    # Checking config:
+    - docker-compose -f docker-compose.ci.yml config --quiet
+
+    # The logic itself:
+    - docker-compose -f docker-compose.ci.yml run
+      --user=root --rm web sh ./docker/ci.sh ${COMMAND}
+  after_script:
+    # Clean docker environment
+    - docker-compose -f docker-compose.ci.yml down --remove-orphans --volumes
+  variables:
+    COMMAND: echo "is abstract stage"
+
+# Checking `.env` files:
+dotenv:
+  extends: .test
+  variables:
+    COMMAND: dotenv-linter config/.env config/.env.template
+
+# Running linting for all python files in the project:
+flake8:
+  extends: .test
+  variables:
+    COMMAND: flake8 .
+
+# Running type checking, see https://github.com/typeddjango/django-stubs
+mypy:
+  extends: .test
+  variables:
+    COMMAND: mypy manage.py src $(find tests -name '*.py')
+
+# Running tests:
+pytest:
+  extends: .test
+  variables:
+    COMMAND: |
+      pytest --dead-fixtures
+      && pytest --junitxml=report.xml --cov=src --cov-branch
+      --cov-report=term-missing:skip-covered
+      --cov-fail-under=${COVERAGE_PERCENT}
+      --cov-report xml:coverage.xml
+  coverage: "/TOTAL.+ ([0-9]{1,3}%)/"
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+
+# Check that all migrations are backwards compatible:
+django lintmigrations:
+  before_script: &db-base-before-script
+    - export SECRET_DATABASE_URL=postgres://postgres@db/postgres
+    - *docker-before-script
+    # Pulling cache:
+    - docker pull "${NOVA_CI_IMAGE}" || docker pull "${IMAGE_FULL_NAME}:dev"
+      || true
+    - docker tag "${NOVA_CI_IMAGE}" "${PROJECT_NAME}:dev" || true
+  extends: .test
+  variables:
+    COMMAND: python manage.py lintmigrations --include-apps=nova_friend
+      --warnings-as-errors
+
+# Run checks to be sure we follow all django's best practices:
+django check:
+  extends: .test
+  before_script: *db-base-before-script
+  variables:
+    COMMAND: python manage.py check --fail-level WARNING
+
+# Check that staticfiles app is working fine:
+django staticfiles:
+  extends: .test
+  variables:
+    COMMAND: DJANGO_ENV=production DJANGO_COLLECTSTATIC_DRYRUN=1 python
+      manage.py collectstatic --no-input --dry-run
+
+# Check that all migrations worked fine:
+django makemigrations:
+  extends: .test
+  before_script: *db-base-before-script
+  variables:
+    COMMAND: python manage.py makemigrations --dry-run --check
+
+# Compile localization files:
+django compile po:
+  extends: .test
+  before_script: *db-base-before-script
+  variables:
+    COMMAND: python manage.py compilemessages
+  artifacts:
+    paths:
+      - '**/locale/**/*.mo'
+    expire_in: 1h
+
+# Checking if all the dependencies are secure and do not have any
+# known vulnerabilities:
+safety:
+  extends: .test
+  variables:
+    COMMAND: safety check --full-report
+
+# Checking `pyproject.toml` file contents:
+poetry check:
+  extends: .test
+  variables:
+    COMMAND: poetry check
+
+# Checking dependencies status:
+pip check:
+  extends: .test
+  variables:
+    COMMAND: pip check
+
+# Checking docs:
+docs check:
+  extends: .test
+  variables:
+    COMMAND: doc8 -q docs
+
+# Checking `yaml` files:
+YAML lint:
+  extends: .test
+  variables:
+    COMMAND: "yamllint -d '{\"extends\": \"default\",
+             \"ignore\": \".venv\" }' -s ."
+
+# Checking translation files, ignoring ordering and locations:
+PO lint:
+  extends: .test
+  variables:
+    # FIXME: отладка polint
+    COMMAND: "polint -i location,unsorted,untranslated
+    **/locale"
+  allow_failure: true
+
+# releasing .whl to pypi server
+release to pypi:
+  image: ghub.letsnova.com/nova/docker/docker-poetry:latest
+  stage: release
+  before_script:
+    - export CI_LOG_LINE=$(
+      git log --decorate=full| grep "^commit $CI_COMMIT_SHA[ ]"
+      )
+    # var = 1 if the current commit is the **latest** on master
+    - export IS_ON_MASTER=$(
+      echo $CI_LOG_LINE
+      | grep -qso "origin/$CI_DEFAULT_BRANCH, " && echo 1
+      || echo 0
+      )
+    # var = 1 if current commit is on any remote commit
+    # that is part of masters history
+    - export COMMIT_ON_MASTER=$(
+      git branch -r --contains $CI_COMMIT_SHA
+      | grep -Eq "^[ ]+origin/$CI_DEFAULT_BRANCH$" && echo 1
+      || echo 0)
+  script:
+    - if [[ ! -z "$CI_COMMIT_TAG" && $COMMIT_ON_MASTER != 1 ]]; then
+      echo "Tags should never be applied to non master branches!" >&2;
+      echo "We quit early, please delete the tag." >&2
+      echo "Merge the branch to master and recreate the tag to continue" >&2;
+      exit 1;
+      fi
+    - poetry publish -r nova --build
+  only:
+    - tags
+  tags:
+    - docker
+
+# Release scripts
+# ===============
+#
+## Releasing image, when in `master` branch,
+## can be replaced with `kira-release` bot:
+## https://github.com/wemake-services/kira-release
+# release-image:
+#  extends: .docker
+#  stage: deploy
+#  allow_failure: false
+#  before_script:
+#    # Build local image to be released to gitlab registry,
+#    # modify it to suite your needs as you wish.
+#    # We only care about the name of the image:
+#    - *docker-before-script
+#
+#    # Now we need the latest images for cache and improved build times:
+#    - docker pull "${IMAGE_FULL_NAME}:latest" || true
+#    - docker pull "${IMAGE_FULL_NAME}:dev" || true
+#    # Create correct tags:
+#    - docker tag "${IMAGE_FULL_NAME}:latest" "${PROJECT_NAME}:latest" || true
+#    - docker tag "${IMAGE_FULL_NAME}:dev" "${PROJECT_NAME}:dev" || true
+#
+#    # Building the image itself:
+#    - docker-compose -f docker-compose.yml build
+#  script:
+#    - docker push "${IMAGE_FULL_NAME}:latest"
+#  only:
+#    - master
+#  environment:
+#    name: production  # used to track time with 'cycle analytics'
